@@ -7,7 +7,7 @@
 		public function about() {
 			return array(
 				'name'			=> 'SSL Redirector',
-				'version'		=> '1.2',
+				'version'		=> '1.3',
 				'release-date'	=> '2014-06-18',
 				'author'		=> array(
 					'name'			=> 'Michael Hay',
@@ -45,11 +45,11 @@
 	    public function install()
 	    {
 		    
-		    Symphony::Database()->query("ALTER TABLE `sym_pages` ADD COLUMN `force_ssl` enum('yes','no') DEFAULT 'no'");
+		    Symphony::Database()->query("ALTER TABLE `sym_pages` ADD COLUMN `force_ssl` enum('http','https','both') DEFAULT 'http'");
 		    
 	        Symphony::Configuration()->setArray(array('ssl' => array(
 		        'enabled' => 'yes',
-		        'trailing_slash' => 'no',
+		        'trailing_slash' => 'no'
 		    )));
 	        return Symphony::Configuration()->write();
 	    }
@@ -69,27 +69,30 @@
 		    $pageId = intval($context["fields"]["id"]);
 		    
 			$fieldset = new XMLElement('fieldset', null, array('class' => 'settings'));
-			$fieldset->appendChild(new XMLElement('legend', __('SSL')));
+			$fieldset->appendChild(new XMLElement('legend', __('SSL Redirect')));
 			$container = new XMLElement('div', null, array('class' => 'field-multilingual'));
 			
-			$sslForceEnabled = Symphony::Database()->fetchRow(0, "
+			$sslForceState = Symphony::Database()->fetchRow(0, "
 				SELECT force_ssl
 				FROM `tbl_pages` AS page
 				WHERE page.id = {$pageId}
 				LIMIT 1;
-			")["force_ssl"] == "yes";
+			")["force_ssl"];
 
-			// handle
 			// Append settings
 			$label = Widget::Label();
-			$input = Widget::Input('fields[force_ssl]', 'yes', 'checkbox');
 			
-			if($sslForceEnabled == 'yes'){
-				$input->setAttribute('checked', 'checked');
-			}
+			$options = array();
+			$options[] = array('http', ($sslForceState == "http"), 'Force HTTP');
+			$options[] = array('https', ($sslForceState == "https"), 'Force HTTPS');
+			$options[] = array('both', ($sslForceState == "both"), 'HTTP or HTTPS');
+			$input = Widget::Select('fields[force_ssl]', $options, array('class' => 'cdi-mode', 'style' => 'width: 250px;'));
 			
-			$label->setValue($input->generate() . ' ' . __('Force SSL Redirect'));
-			$container->appendChild($label);
+			//if($sslForceEnabled == 'yes'){
+			//	$input->setAttribute('checked', 'checked');
+			//}
+			
+			$container->appendChild($input);
 
 			$fieldset->appendChild($container);
 			$context['form']->appendChild($fieldset);
@@ -99,14 +102,11 @@
 		public function __saveSSLSettings($context) {
 		    
 			$pageId = $context['page_id'];
-			$forceSSL = "no";
+			$forceSSL = "http";
 			
 			//Disable force ssl mode by default
-			
-			if($context["fields"]["force_ssl"] == "yes"){
-				$forceSSL = "yes";
-			}
-			
+			$forceSSL = $context["fields"]["force_ssl"];
+
 			Symphony::Database()->query("UPDATE `tbl_pages` SET `force_ssl` = '{$forceSSL}' WHERE `id` = {$pageId};");
 			
 		}
@@ -120,30 +120,35 @@
 		    
 		    if($conf['enabled'] == 'yes' && isset($pageId)){
 			    
-			    $sslForceEnabled = Symphony::Database()->fetchRow(0, "
+			    $sslForceState = Symphony::Database()->fetchRow(0, "
 					SELECT force_ssl
 					FROM `tbl_pages` AS page
 					WHERE page.id = {$pageId}
 					LIMIT 1;
-				")["force_ssl"] === "yes";
+				")["force_ssl"];
 			    
 			    $current_url = (string)$context['params']['current-url'];
 			    
 			    if($conf["trailing_slash"] == "yes"){
-					    $current_url = $current_url . "/";
+					$current_url = $current_url . "/";
 				}
 			    
-	          
-			    if ($sslForceEnabled && __SECURE__ !== TRUE) {
-			        header('HTTP/1.1 301 Moved Permanently');
-			        redirect('Location: ' . preg_replace('/^http/', 'https', $current_url));
-			        exit();
-			    } else if (!$sslForceEnabled && __SECURE__ === TRUE) {
-			        header('HTTP/1.1 301 Moved Permanently');
-			        redirect('Location: ' . preg_replace('/^https/', 'http', $current_url));
-			        exit();
-			    }
+				if($sslForceState == 'http'){
+					if(__SECURE__ === TRUE) {
+				        header('HTTP/1.1 301 Moved Permanently');
+				        redirect('Location: ' . preg_replace('/^https/', 'http', $current_url));
+				        exit();
+				    }
+				}
 				
+				if($sslForceState == 'https'){
+					if (__SECURE__ !== TRUE) {
+			        	header('HTTP/1.1 301 Moved Permanently');
+						redirect('Location: ' . preg_replace('/^http/', 'https', $current_url));
+						exit();
+				    } 
+				}
+
 			}
 
 		}
